@@ -3,4 +3,3 @@ yfinance
 plotly
 google-generativeai
 pillow
-kaleido
