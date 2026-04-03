@@ -2,33 +2,31 @@ import streamlit as st
 import yfinance as yf
 import plotly.graph_objects as go
 import google.generativeai as genai
-from PIL import Image
-import io
 
-# MUST be the VERY FIRST Streamlit command
 st.set_page_config(page_title="AI Trade Analyzer", layout="wide")
-
 st.title("🚀 Free AI Trading Chart Analyzer")
-st.caption("Entry | Stop Loss | Confidence % — Powered by Gemini")
+st.caption("Entry | Stop Loss | Confidence % — Powered by Gemini 2.5 Flash")
 
-# Gemini Key (use Secrets later for production)
-gemini_key = st.text_input("Paste your Gemini API Key here (only you can see it)", type="password")
+gemini_key = st.text_input("Paste your Gemini API Key here", type="password")
 
 ticker = st.text_input("Ticker (e.g. BTC-USD, AAPL, EURUSD=X)", "BTC-USD")
 timeframe = st.selectbox("Timeframe", ["5d", "1mo", "3mo"])
 
-if st.button("Analyze Chart & Give Trade", type="primary"):
+uploaded_file = st.file_uploader("Or upload your own chart screenshot", type=["png", "jpg", "jpeg"])
+
+if st.button("Analyze & Give Trade", type="primary"):
     if not gemini_key:
         st.error("Please enter your Gemini API key")
     else:
-        with st.spinner("Fetching data + AI analyzing..."):
+        with st.spinner("Fetching chart + AI analyzing..."):
             try:
+                # Fetch data
                 data = yf.download(ticker, period=timeframe, progress=False)
                 
                 if data.empty:
-                    st.error("No data for this ticker. Try another (e.g. BTC-USD)")
+                    st.error("No data found. Try another ticker.")
                 else:
-                    # Candlestick chart
+                    # Show interactive chart to YOU
                     fig = go.Figure(data=[go.Candlestick(
                         x=data.index,
                         open=data['Open'],
@@ -36,39 +34,45 @@ if st.button("Analyze Chart & Give Trade", type="primary"):
                         low=data['Low'],
                         close=data['Close']
                     )])
-                    fig.update_layout(title=f"{ticker} Chart", height=500, xaxis_rangeslider_visible=False)
+                    fig.update_layout(title=f"{ticker} {timeframe} Chart", height=600, xaxis_rangeslider_visible=False)
                     st.plotly_chart(fig, use_container_width=True)
                     
-                    # Convert chart to image for Gemini
-                    buf = io.BytesIO()
-                    fig.write_image(buf, format="png")
-                    buf.seek(0)
-                    chart_img = Image.open(buf)
+                    # Current price for prompt
+                    current_price = data['Close'][-1]
                     
-                    # Configure Gemini
-                    genai.configure(api_key=gemini_key)
-                    model = genai.GenerativeModel('gemini-2.5-flash')
-                    
+                    # Prepare prompt (no image needed)
                     prompt = f"""
-You are a professional technical trader. Analyze this {ticker} chart.
+You are a professional technical analyst.
+Analyze the {ticker} chart ({timeframe} timeframe).
+Current price is approximately {current_price:.4f}.
 
-Return ONLY in this format (be realistic with confidence):
+Return ONLY in this exact format:
 
-**Direction**: Buy / Sell
+**Direction**: Buy or Sell
 **Entry Price**: exact price
 **Stop Loss (SL)**: exact price
-**Confidence**: XX% (0-100)
+**Confidence**: XX% (be honest, 0-100)
 **Reasoning**: 2-3 short sentences (support/resistance, patterns, indicators)
 
-Current price ≈ {data['Close'][-1]:.4f}
-If no good setup, say "No clear high-probability setup right now."
+If no clear setup, say: "No clear high-probability setup right now."
 """
+
+                    # If user uploaded a screenshot, use it (Gemini loves images)
+                    if uploaded_file is not None:
+                        image = uploaded_file.getvalue()
+                        contents = [prompt, {"mime_type": "image/png", "data": image}]
+                    else:
+                        contents = [prompt]
+
+                    # Call Gemini
+                    genai.configure(api_key=gemini_key)
+                    model = genai.GenerativeModel('gemini-2.5-flash')
+                    response = model.generate_content(contents)
                     
-                    response = model.generate_content([prompt, chart_img])
                     st.subheader("🧠 AI Trade Signal")
                     st.markdown(response.text)
                     
-                    st.warning("⚠️ Educational only. Not financial advice. Trade at your own risk.")
+                    st.warning("⚠️ Educational only. Not financial advice.")
                     
             except Exception as e:
                 st.error(f"Error: {str(e)}")
